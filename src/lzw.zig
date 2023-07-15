@@ -9,7 +9,7 @@ pub fn Decoder(comptime InStream: type) type {
     return struct {
         const Self = @This();
 
-        const Error = BitReaderType.Error || Allocator.Error || error{ ReachedPrefixLengthLimit };
+        const Error = BitReaderType.Error || Allocator.Error || error{ReachedPrefixLengthLimit};
         const Reader = std.io.Reader(*Self, Error, read);
 
         arena: ArenaAllocator,
@@ -17,7 +17,7 @@ pub fn Decoder(comptime InStream: type) type {
         out_buffer: ArrayListUnmanaged(u8),
         decode_stack: ArrayListUnmanaged(u8),
         dict: MultiArrayList(DictEntry),
-        
+
         code_width: u8 = initial_code_width,
         last_code: ?u16 = null,
         decoded_byte_count: usize = 0,
@@ -38,7 +38,7 @@ pub fn Decoder(comptime InStream: type) type {
         };
 
         pub fn init(backing_allocator: Allocator, in_stream: InStream) Allocator.Error!Self {
-            var d = Self {
+            var d = Self{
                 .arena = ArenaAllocator.init(backing_allocator),
                 .in_reader = std.io.bitReader(.Big, in_stream),
                 .out_buffer = .{},
@@ -46,17 +46,17 @@ pub fn Decoder(comptime InStream: type) type {
                 .dict = .{},
             };
             errdefer d.arena.deinit();
-            
+
             const dict_initial_len = maxIntForWidthUnsigned(initial_code_width);
             try d.dict.ensureTotalCapacity(d.arena.allocator(), dict_initial_len);
-            
+
             for (0..0x100) |i| {
                 d.dict.appendAssumeCapacity(.{ .prefix = 0, .suffix = @intCast(i) });
             }
             // append dummy values for CLEAR and END codes
             d.dict.appendAssumeCapacity(.{ .prefix = 0, .suffix = 0 });
             d.dict.appendAssumeCapacity(.{ .prefix = 0, .suffix = 0 });
-            
+
             return d;
         }
 
@@ -75,7 +75,7 @@ pub fn Decoder(comptime InStream: type) type {
 
             @memcpy(dst[0..n], items[0..n]);
             // shift remaining items in out_buffer to beginning
-            std.mem.copyForwards(u8, items[0..items.len - n], items[n..]);
+            std.mem.copyForwards(u8, items[0 .. items.len - n], items[n..]);
             self.out_buffer.shrinkRetainingCapacity(items.len - n);
 
             return n;
@@ -90,7 +90,7 @@ pub fn Decoder(comptime InStream: type) type {
             if (self.done_decoding) {
                 return;
             }
-            
+
             const code = try self.readCode();
             // std.debug.assert(code <= self.dict.len);
 
@@ -116,7 +116,7 @@ pub fn Decoder(comptime InStream: type) type {
                 self.last_code = code;
                 return;
             }
-            
+
             var index: u16 = blk: {
                 if (code >= self.dict.len) {
                     const prev_suffix = self.dict.items(.suffix)[self.dict.len - 1];
@@ -126,15 +126,15 @@ pub fn Decoder(comptime InStream: type) type {
                     break :blk code;
                 }
             };
-            
+
             while (index > 0xff) {
                 const ch = self.dict.items(.suffix)[index];
-                
+
                 if (self.decode_stack.items.len >= max_prefix_len) {
                     return error.ReachedPrefixLengthLimit;
                 }
                 try self.decode_stack.append(self.arena.allocator(), ch);
-                
+
                 index = self.dict.items(.prefix)[index];
             }
             try self.decode_stack.append(self.arena.allocator(), @intCast(index));
@@ -157,14 +157,14 @@ pub fn Decoder(comptime InStream: type) type {
                     try self.dict.ensureTotalCapacity(self.arena.allocator(), new_dict_capacity);
                 }
             }
-            
+
             self.last_code = code;
         }
-        
+
         fn readCode(self: *Self) BitReaderType.Error!u16 {
             var bits_read: usize = 0;
             var code = try self.in_reader.readBits(u16, self.code_width - 1, &bits_read);
-            
+
             const might_index_upper_dict = blk: {
                 const mask = (@as(u16, 1) << @intCast(self.code_width - 1)) - 1;
                 const masked_dict_len = self.dict.len & mask;
@@ -179,13 +179,13 @@ pub fn Decoder(comptime InStream: type) type {
 
             return code;
         }
-    
+
         pub fn debugPrintDict(self: *const Self) void {
             var i: usize = end_code + 1;
             while (i < self.dict.len) : (i += 0x10) {
                 const start = i;
                 const end = @min(i + 0x10, self.dict.len);
-                
+
                 std.debug.print("0x{x:0>3}:\n", .{start});
                 for (self.dict.items(.suffix)[start..end]) |s| {
                     if (std.ascii.isPrint(s)) {
@@ -216,7 +216,6 @@ pub fn decoder(allocator: Allocator, in_stream: anytype) !Decoder(@TypeOf(in_str
     return Decoder(@TypeOf(in_stream)).init(allocator, in_stream);
 }
 
-
 pub fn Encoder(comptime OutStream: type) type {
     return struct {
         arena: ArenaAllocator,
@@ -236,7 +235,7 @@ pub fn Encoder(comptime OutStream: type) type {
 
         const Error = Allocator.Error || BitWriterType.Error;
         const Writer = std.io.Writer(*Self, Error, write);
-        
+
         const BitWriterType = std.io.BitWriter(.Big, OutStream);
 
         const DictEntry = struct {
@@ -245,7 +244,7 @@ pub fn Encoder(comptime OutStream: type) type {
         };
 
         pub fn init(backing_allocator: Allocator, out_stream: OutStream) Allocator.Error!Self {
-            var e = Self {
+            var e = Self{
                 .arena = ArenaAllocator.init(backing_allocator),
                 .out_writer = std.io.bitWriter(.Big, out_stream),
                 .dict = .{},
@@ -275,7 +274,7 @@ pub fn Encoder(comptime OutStream: type) type {
                     self.cur_prefix = ch;
                     continue;
                 }
-                
+
                 if (self.indexOfMatchingEntry(self.cur_prefix, ch)) |match| {
                     self.cur_prefix = match;
                 } else {
@@ -287,11 +286,11 @@ pub fn Encoder(comptime OutStream: type) type {
 
             return input.len;
         }
-        
+
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
-        
+
         pub fn endStream(self: *Self) BitWriterType.Error!void {
             try self.emitCode(self.cur_prefix);
             try self.emitCode(end_code);
@@ -300,10 +299,10 @@ pub fn Encoder(comptime OutStream: type) type {
 
         fn emitCode(self: *Self, code: u16) BitWriterType.Error!void {
             const lower_bits_mask = (@as(u16, 1) << @intCast(self.code_width - 1)) - 1;
-            
+
             const dict_len_masked = (self.dict.len - 1) & lower_bits_mask;
             const code_masked = code & lower_bits_mask;
-            
+
             try self.out_writer.writeBits(code_masked, self.code_width - 1);
             if (code_masked <= dict_len_masked) {
                 const most_sig_bit = getBitAt(code, @intCast(self.code_width - 1));
@@ -315,7 +314,7 @@ pub fn Encoder(comptime OutStream: type) type {
             if (self.dict.len >= dict_max_len) {
                 return;
             }
-            
+
             const new_entry = .{ .prefix = self.cur_prefix, .suffix = suffix };
             try self.dict.append(self.arena.allocator(), new_entry);
 
@@ -328,14 +327,14 @@ pub fn Encoder(comptime OutStream: type) type {
         fn indexOfMatchingEntry(self: *Self, prefix: u16, suffix: u8) ?u16 {
             const dict_prefixes = self.dict.items(.prefix);
             const dict_suffixes = self.dict.items(.suffix);
-            
+
             var i: u16 = @max(prefix + 1, end_code + 1);
             while (i < self.dict.len) : (i += 1) {
                 if (dict_prefixes[i] == prefix and dict_suffixes[i] == suffix) {
                     return i;
                 }
             }
-            
+
             return null;
         }
 
@@ -347,7 +346,7 @@ pub fn Encoder(comptime OutStream: type) type {
             var start: usize = end_code + 1;
             while (start < self.dict.len) : (start += 0x10) {
                 const end = @min(start + 0x10, self.dict.len);
-                
+
                 std.debug.print("0x{x}:\n", .{start});
                 for (self.dict.items(.suffix)[start..end]) |s| {
                     if (std.ascii.isPrint(s)) {
@@ -357,7 +356,7 @@ pub fn Encoder(comptime OutStream: type) type {
                     }
                 }
                 std.debug.print("\n", .{});
-                
+
                 for (self.dict.items(.prefix)[start..end]) |p| {
                     if (p < 128 and std.ascii.isPrint(@intCast(p))) {
                         std.debug.print("\'{c}\' ", .{@as(u8, @intCast(p))});
@@ -374,4 +373,3 @@ pub fn Encoder(comptime OutStream: type) type {
 pub fn encoder(backing_allocator: Allocator, out_stream: anytype) Allocator.Error!Encoder(@TypeOf(out_stream)) {
     return Encoder(@TypeOf(out_stream)).init(backing_allocator, out_stream);
 }
-
