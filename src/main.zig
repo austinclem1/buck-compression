@@ -4,55 +4,64 @@ const lzw = @import("lzw.zig");
 
 const ArrayList = std.ArrayList;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main() !void {}
 
-    // var file = try std.fs.cwd().openFile("test_data/compressed/97", .{});
-    // defer file.close();
-    // var decoder = try lzw.decoder(allocator, file.reader());
-    // defer decoder.deinit();
-    // const data = try decoder.reader().readAllAlloc(allocator, 1000000);
-    // defer allocator.free(data);
-    // std.debug.print("{s}\n", .{data});
+test "verify decompression" {
+    const allocator = std.testing.allocator;
 
-    var compressed_dir = try std.fs.cwd().openIterableDir("test_data/compressed", .{});
-    defer compressed_dir.close();
+    const test_filenames = [_][]const u8{ "0", "1", "3", "16", "17", "32", "33", "34", "35", "48", "49", "50", "52", "64", "65", "66", "67", "80", "81", "82", "83", "94", "95", "96", "97", "98", "99" };
 
-    var decompressed_dir = try std.fs.cwd().openDir("test_data/decompressed", .{});
-    defer decompressed_dir.close();
-
-    var walker = try compressed_dir.walk(allocator);
-    defer walker.deinit();
-    while (try walker.next()) |walker_entry| {
-        std.debug.print("starting {s}\n", .{walker_entry.basename});
-        
-        var compressed_file = try compressed_dir.dir.openFile(walker_entry.basename, .{});
+    inline for (test_filenames) |filename| {
+        var compressed_file = try std.fs.cwd().openFile("test_data/compressed/" ++ filename, .{});
         defer compressed_file.close();
 
-        var decompressed_file = try decompressed_dir.openFile(walker_entry.basename, .{});
+        var decompressed_file = try std.fs.cwd().openFile("test_data/decompressed/" ++ filename, .{});
         defer decompressed_file.close();
 
-        var decoder = try lzw.decoder(allocator, compressed_file.reader()); 
+        var decoder = try lzw.decoder(allocator, compressed_file.reader());
         defer decoder.deinit();
 
-        var decoded_text = try decoder.reader().readAllAlloc(allocator, 1024 * 1024);
+        const decoded_text = try decoder.reader().readAllAlloc(allocator, 1024 * 1024);
         defer allocator.free(decoded_text);
 
-        var original_decompressed_text = try decompressed_file.reader().readAllAlloc(allocator, 1024 * 1024);
-        defer allocator.free(original_decompressed_text);
+        const original_text = try decompressed_file.reader().readAllAlloc(allocator, 1024 * 1024);
+        defer allocator.free(original_text);
 
-        std.debug.print("{s}\n\n{s}\n", .{decoded_text, original_decompressed_text});
-        std.debug.assert(std.mem.eql(u8, decoded_text, original_decompressed_text));
-        // std.debug.print("{x}\n", .{decoded_text[decoded_text.len - 1]});
-        // std.debug.print("{d}\n", .{decoded_text.len});
-        // std.debug.print("{d}\n", .{original_decompressed_text.len});
-        // for (0..decoded_text.len - 1) |i| {
-        //     if (decoded_text[i] != original_decompressed_text[i]) {
-        //         std.debug.print("difference at {d}\n", .{i});
-        //         return;
-        //     }
-        // }
+        try std.testing.expectEqualSlices(u8, original_text, decoded_text);
+    }
+}
+
+test "verify compression" {
+    const allocator = std.testing.allocator;
+
+    // level id 97 intentionally left out for compression test because it includes a clear code
+    // near the end when it starts encoding map data
+    const test_filenames = [_][]const u8{ "0", "1", "3", "16", "17", "32", "33", "34", "35", "48", "49", "50", "52", "64", "65", "66", "67", "80", "81", "82", "83", "94", "95", "96", "98", "99" };
+
+    inline for (test_filenames) |filename| {
+        var compressed_file = try std.fs.cwd().openFile("test_data/compressed/" ++ filename, .{});
+        defer compressed_file.close();
+
+        var decompressed_file = try std.fs.cwd().openFile("test_data/decompressed/" ++ filename, .{});
+        defer decompressed_file.close();
+
+        const input_text = try decompressed_file.reader().readAllAlloc(allocator, 1024 * 1024);
+        defer allocator.free(input_text);
+
+        var newly_compressed_text = std.ArrayList(u8).init(allocator);
+        defer newly_compressed_text.deinit();
+
+        var encoder = try lzw.encoder(allocator, newly_compressed_text.writer());
+        defer encoder.deinit();
+
+        try encoder.writer().writeAll(input_text);
+        try encoder.endStream();
+        const newly_compressed_text_trimmed = std.mem.trimRight(u8, newly_compressed_text.items, "\x00");
+
+        const original_compressed_text = try compressed_file.reader().readAllAlloc(allocator, 1024 * 1024);
+        defer allocator.free(original_compressed_text);
+        const original_compressed_text_trimmed = std.mem.trimRight(u8, original_compressed_text, "\x00");
+
+        try std.testing.expectEqualSlices(u8, original_compressed_text_trimmed, newly_compressed_text_trimmed);
     }
 }
